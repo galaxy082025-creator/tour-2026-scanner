@@ -120,7 +120,13 @@
     <div class="data">
       <strong>Kode QR</strong>: <span id="kode"></span>
     </div>
+<div class="data">
+    <strong>Ukuran Baju</strong>: <span id="ukuranBaju"></span>
+</div>
 
+<div class="data">
+    <strong>Nomor Kamar</strong>: <span id="nomorKamar"></span>
+</div>
     <button id="btnCheckin" onclick="checkIn()">
       CHECK-IN PESERTA
     </button>
@@ -254,8 +260,10 @@
       pesertaAktif = data;
 
       document.getElementById("nama").innerText = data.nama;
-      document.getElementById("tim").innerText = data.tim;
-      document.getElementById("kode").innerText = data.kodeQR;
+document.getElementById("tim").innerText = data.tim;
+document.getElementById("ukuranBaju").innerText = data.ukuranBaju || "-";
+document.getElementById("nomorKamar").innerText = data.nomorKamar || "-";
+document.getElementById("kode").innerText = data.kodeQR;
 
       document.getElementById("result").style.display = "block";
 
