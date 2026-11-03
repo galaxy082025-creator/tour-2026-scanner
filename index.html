@@ -1,0 +1,341 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOUR 2026 - QR Wristband Scanner</title>
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      color: #222;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: 20px auto;
+      background: white;
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 3px 15px #00000012;
+      text-align: center;
+    }
+
+    h2 { margin: 0 0 8px; color: #17365d; }
+    .subtitle { color: #777; margin-bottom: 24px; }
+
+    #reader {
+      width: 100%;
+      margin: 15px auto;
+      overflow: hidden;
+      border-radius: 10px;
+    }
+
+    #status {
+      margin: 15px 0;
+      padding: 12px;
+      background: #f1f5f9;
+      border-radius: 8px;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    #result {
+      display: none;
+      text-align: left;
+      margin-top: 20px;
+      padding: 18px;
+      background: #f8fafc;
+      border-radius: 10px;
+    }
+
+    .data {
+      margin: 12px 0;
+      font-size: 15px;
+    }
+
+    .data strong {
+      display: inline-block;
+      width: 105px;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 12px;
+      border: none;
+      border-radius: 8px;
+      background: #1769aa;
+      color: white;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+
+    #btnCheckin { background: #16834a; }
+    #btnAgain { background: #555; }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h2>TOUR 2026</h2>
+  <div class="subtitle">QR Wristband Scanner</div>
+
+  <div id="reader"></div>
+
+  <div id="status">Tekan tombol untuk memulai scanner.</div>
+
+  <button id="btnStart" onclick="startScanner()">
+    MULAI SCANNER
+  </button>
+
+  <div id="result">
+
+    <h3>Data Peserta</h3>
+
+    <div class="data">
+      <strong>Nama</strong>: <span id="nama"></span>
+    </div>
+
+    <div class="data">
+      <strong>Tim</strong>: <span id="tim"></span>
+    </div>
+
+    <div class="data">
+      <strong>Kode QR</strong>: <span id="kode"></span>
+    </div>
+
+    <button id="btnCheckin" onclick="checkIn()">
+      CHECK-IN PESERTA
+    </button>
+
+    <button id="btnAgain" onclick="scanAgain()">
+      SCAN LAGI
+    </button>
+
+  </div>
+
+</div>
+
+<script>
+  // URL Google Apps Script Web App
+  const API_URL =
+    "https://script.google.com/macros/s/AKfycbzRdprXc_hUrPOmhoJ7SnBP3uCWhtTpsH9ECr7WNw9zgiaEW2k-0oiNG-z6CAgDUq8f/exec";
+
+  let scanner = null;
+  let scanning = false;
+  let pesertaAktif = null;
+
+  // Menghubungkan halaman GitHub dengan Apps Script
+  function panggilAPI(params) {
+    return new Promise((resolve, reject) => {
+
+      const callbackName =
+        "cb_" + Date.now() + "_" +
+        Math.floor(Math.random() * 100000);
+
+      const url = new URL(API_URL);
+
+      Object.keys(params).forEach(key => {
+        url.searchParams.set(key, params[key]);
+      });
+
+      url.searchParams.set("callback", callbackName);
+      url.searchParams.set("_", Date.now());
+
+      const script = document.createElement("script");
+      script.src = url.toString();
+
+      const bersihkan = () => {
+        delete window[callbackName];
+        script.remove();
+      };
+
+      window[callbackName] = function(data) {
+        bersihkan();
+        resolve(data);
+      };
+
+      script.onerror = function() {
+        bersihkan();
+        reject(new Error("Tidak dapat terhubung ke server."));
+      };
+
+      document.body.appendChild(script);
+    });
+  }
+
+  // Memulai kamera
+  function startScanner() {
+
+    if (typeof Html5Qrcode === "undefined") {
+      document.getElementById("status").innerText =
+        "Library scanner gagal dimuat.";
+      return;
+    }
+
+    document.getElementById("btnStart").style.display = "none";
+    document.getElementById("status").innerText =
+      "Mengaktifkan kamera...";
+
+    scanner = new Html5Qrcode("reader");
+
+    scanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 }
+      },
+      onScanSuccess
+    ).then(() => {
+      scanning = true;
+      document.getElementById("status").innerText =
+        "Arahkan kamera ke QR Code peserta.";
+    }).catch(error => {
+      scanning = false;
+      document.getElementById("status").innerText =
+        "KAMERA ERROR: " + error;
+      document.getElementById("btnStart").style.display = "block";
+    });
+  }
+
+  // Ketika QR berhasil terbaca
+  function onScanSuccess(decodedText) {
+
+    if (!scanning) return;
+
+    scanning = false;
+
+    document.getElementById("status").innerText =
+      "QR terbaca. Memeriksa data peserta...";
+
+    scanner.stop().then(() => {
+      scanner.clear();
+      scanner = null;
+      cariPeserta(decodedText);
+    }).catch(error => {
+      document.getElementById("status").innerText =
+        "Gagal menghentikan kamera: " + error;
+    });
+  }
+
+  // Mencari data peserta di Google Sheets
+  async function cariPeserta(kodeQR) {
+
+    try {
+      const data = await panggilAPI({
+        api: "scan",
+        kodeQR: kodeQR
+      });
+
+      if (!data.berhasil) {
+        document.getElementById("status").innerText =
+          data.pesan || "Peserta tidak ditemukan.";
+        document.getElementById("btnStart").style.display = "block";
+        return;
+      }
+
+      pesertaAktif = data;
+
+      document.getElementById("nama").innerText = data.nama;
+      document.getElementById("tim").innerText = data.tim;
+      document.getElementById("kode").innerText = data.kodeQR;
+
+      document.getElementById("result").style.display = "block";
+
+      if (data.sudahCheckIn) {
+        document.getElementById("status").innerText =
+          "PESERTA SUDAH CHECK-IN.";
+        document.getElementById("btnCheckin").disabled = true;
+        document.getElementById("btnCheckin").innerText =
+          "SUDAH CHECK-IN";
+      } else {
+        document.getElementById("status").innerText =
+          "Peserta ditemukan. Silakan lakukan check-in.";
+        document.getElementById("btnCheckin").disabled = false;
+        document.getElementById("btnCheckin").innerText =
+          "CHECK-IN PESERTA";
+      }
+
+    } catch (error) {
+      document.getElementById("status").innerText =
+        "KONEKSI ERROR: " + error.message;
+      document.getElementById("btnStart").style.display = "block";
+    }
+  }
+
+  // Menyimpan waktu check-in
+  async function checkIn() {
+
+    if (!pesertaAktif) return;
+
+    const tombol = document.getElementById("btnCheckin");
+
+    tombol.disabled = true;
+    tombol.innerText = "MENYIMPAN...";
+
+    try {
+      const hasil = await panggilAPI({
+        api: "checkin",
+        row: pesertaAktif.row
+      });
+
+      if (hasil.berhasil) {
+        document.getElementById("status").innerText =
+          "CHECK-IN BERHASIL!";
+        tombol.innerText = "CHECK-IN BERHASIL";
+      } else if (hasil.sudahCheckIn) {
+        document.getElementById("status").innerText =
+          "Peserta sudah check-in sebelumnya.";
+        tombol.innerText = "SUDAH CHECK-IN";
+      } else {
+        document.getElementById("status").innerText =
+          hasil.pesan || "Check-in gagal.";
+        tombol.disabled = false;
+        tombol.innerText = "COBA CHECK-IN LAGI";
+      }
+
+    } catch (error) {
+      document.getElementById("status").innerText =
+        "GAGAL MENYIMPAN: " + error.message;
+      tombol.disabled = false;
+      tombol.innerText = "COBA CHECK-IN LAGI";
+    }
+  }
+
+  // Mengulang proses scan
+  function scanAgain() {
+
+    pesertaAktif = null;
+    document.getElementById("result").style.display = "none";
+    document.getElementById("status").innerText =
+      "Siap melakukan scan berikutnya.";
+
+    const tombol = document.getElementById("btnCheckin");
+    tombol.disabled = false;
+    tombol.innerText = "CHECK-IN PESERTA";
+
+    document.getElementById("reader").innerHTML = "";
+    startScanner();
+  }
+
+</script>
+
+</body>
+</html>
